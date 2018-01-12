@@ -7,16 +7,20 @@
 library(shiny)
 library(tidyverse)
 library(ggvis)
+library(data.table)
 
 #==== collect and tidy data ====
-songsData <- read_csv("./songsdata.csv")
-tagsData <- read_csv("./emotiondata.csv")
-genreData <- read_csv("./genredata.csv")
+#songsData <- read_csv("./songsdata.csv")
+#tagsData <- read_csv("./emotiondata.csv")
+genreData <- fread("./genredata.csv")
 
-data_tempo <- songsData$tempo
-data_loudness <- songsData$loudness
-allData <- merge(songsData, tagsData,by="track_id")
+
+#allData <- merge(songsData, tagsData,by="track_id")
+allData <- fread("./alldata.csv")
+data_tempo <- allData$tempo
+data_loudness <- allData$loudness
 allData <- merge(allData, genreData, by="track_id",all.x = TRUE)
+
 
 #==== javascript for visualization ====
 jscode <- 
@@ -116,17 +120,24 @@ server <- function(input, output) {
     songs <- actsongs[actsongs$track_id == x$track_id, ]
     paste0("<b>", songs$artist_name, "-</b><br>",
            "<a href=\"https://www.youtube.com/results?search_query=",
-           songs$artist_name," - ",songs$title,"\">",songs$title,"</a>")
+           songs$artist_name," - ",songs$title,"\" target=\"_blank\">",songs$title,"</a>")
     }  
-   
-    
+
+  #==== add auto reactive ====   
+  #==== currently it does not work well, need to improve====
+  #autoInvalidate <- reactiveTimer(2000)
+  #observe({
+  #  autoInvalidate()
+  #  print(paste("The value of min loudness is", isolate(input$loudness[1])))
+  #})
+  #==== end of auto reactive ====
    vis <- reactive({
      
      #more features filter, here is just for genre
      if(is.null(input$infotype)){
      aData%>%
       ggvis(~tempo,~loudness,fill = ~tag_name, size= ~weight, key:= ~track_id ) %>%
-      layer_points() %>%
+      layer_points(opacity:=0.3) %>%
       #add_legend(c("size","fill"), title = c("weight","emotion type")) %>%
       add_legend("size", title = c("weight"),properties = legend_props(legend=list(x=469,y=0.5))) %>%
       add_legend("fill", title = c("emotion type"),properties = legend_props(legend=list(x=468,y=100))) %>%
@@ -134,7 +145,7 @@ server <- function(input, output) {
      else{
        aData%>%
          ggvis(~tempo,~loudness, shape = ~tag_name, size= ~weight, key:= ~track_id) %>%
-         layer_points(fill= ~genre) %>%
+         layer_points(fill= ~genre, opacity:=0.3) %>%
          #add_legend(c("size","fill"), title = c("weight","emotion type")) %>%
          add_legend("size", title = c("weight"),properties = legend_props(legend=list(x=469,y=0.5))) %>%
          add_legend("shape", title = c("emotion type"),properties = legend_props(legend=list(x=468,y=100))) %>%
