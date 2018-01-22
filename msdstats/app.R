@@ -48,12 +48,12 @@ ui <- fluidPage(
       # two output, one for ggplot2, one for ggvis
       fluidRow(
         column(
-          width = 4,
+          width = 6,
           h4("tempo_mean summary"),
           plotOutput("distPlot1", height = 300)
         ),
         column(
-          width = 4,
+          width = 6,
           h4("loudness_mean summary"),
           plotOutput("distPlot2", height = 300)
         )
@@ -138,7 +138,7 @@ server <- function(input, output) {
   output$distPlot1 <- renderPlot({
     aData() %>%
       ggplot(aes(x = tag, y = tempo)) +
-      geom_point(aes(color = tag)) +
+      geom_jitter(aes(color = tag),alpha = 0.05) +
       stat_summary(
         fun.y = mean,
         colour = "red",
@@ -151,7 +151,7 @@ server <- function(input, output) {
   output$distPlot2 <- renderPlot({
     aData() %>%
       ggplot(aes(x = tag, y = loudness)) +
-      geom_point(aes(color = tag)) +
+      geom_jitter(aes(color = tag),alpha = 0.05) +
       stat_summary(
         fun.y = mean,
         colour = "red",
