@@ -1,0 +1,398 @@
+---
+title: "How to map emotion tags to dimensional space"
+output:
+  html_document: default
+  word_document: default
+date: '2018-03-12'
+---
+
+
+```{r setup, include = FALSE}
+library(stringr)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+```
+# Preliminary 
+## Initialization
+* Collect tags data  
+ In the input file, tag info like this: happy\*100;indie rock\*82;rock\*65
+* Set stopwords for removal
+* Set genre words for removal
+```{r alltags, include = FALSE}
+#initial
+alltags <- fread("./statwords.csv")
+#in the final statistical form, remove some meaningless words
+exword <- c("the","to","of","and","a","in","this","-","for","it","that","on","is")
+#exgenre <- c("pop","rock","punk","jazz","folk","indie","classic","electronic","latin")
+exgenre <- c("pop|rock|punk|jazz|folk|indie|classic|electronic|latin|hip hop|blues|rnb|rap|vocal|country|ballad")
+```
+
+## This function is extracting emotion tags info and tag frequency and weight.
+* Input: ekey - specify emotion type
+* Output: one list contains two data frames. 
+* One dataset is single words statistic. The other is phrases statistic.
+```{r statwords(), eval = FALSE}
+statwords <- function(ekey){
+  result <- grep(ekey,alltags$tags,ignore.case = TRUE)
+  if(length(result)==0 ){
+    return(NULL)
+  }
+  subtags <- alltags[result,]
+  obsv <- str_to_lower(subtags$tags)
+  obsv <- str_split(obsv,pattern = ";")      #list
+  obsv1 <- unlist(obsv)                      #phrases vector with '*' and weight
+  obsv2 <- sapply(strsplit(obsv1, "\\*"), "[", 1)  #phrases vector
+  obsv3 <- sapply(strsplit(obsv1, "\\*"), "[", 2)  #weight vector
+  
+  
+  #keep original phrases
+  obsv4 <- as.data.frame(obsv2, stringsAsFactors = FALSE)   #data frame
+  names(obsv4) <- c("phrases")
+  obsv4$freq <- 1L
+  obsv4$weight <- as.numeric(obsv3)
+  #obsv4 <- obsv4[!(obsv4$phrases %in% exgenre),] 
+  obsv4 <- obsv4[!(grepl(exgenre,obsv4$phrases)),] 
+  
+  #split into single words
+  obsv5 <- paste0(obsv2,collapse=" ")  #only one string containing all words
+  obsv6 <- str_split(obsv5,pattern = " ") 
+  obsv6 <- unlist(obsv6)               # word vector
+  
+  
+  #split single weight for each word
+  times <- lengths(str_split(obsv2,pattern = " "))
+  obsv7 <- as.data.frame(obsv6, stringsAsFactors = FALSE)   #data frame
+  names(obsv7) <- c("words")
+  obsv7$freq <- 1L
+  obsv7$weight <- as.numeric(rep(obsv3,times))
+  obsv7 <- obsv7[!(obsv7$words %in% exword),]  
+  obsv7 <- obsv7[!(obsv7$words %in% exgenre),]  
+  
+  #add obsv4,obsv7 into one list as return
+  list(obsv4,obsv7)
+  
+}
+```
+
+## Generate statistic data
+* Setting keyword, then use function statwords(key) to generate tag frequency and weight for specified emotion type
+* For each emotion type, calculate the statistic tags information
+* Here we set key word to **happy**, **sad**, **angry**, **relax**, **calm** and run this part of code for them separately
+* Export statistic data as csv files
+```{r statwordswithemotion, eval = FALSE}
+
+keyword <- c("happy")
+statlist <- statwords(keyword)
+if(!is.null(statlist)){
+  form1 <- statlist[[1]]
+  form2 <- statlist[[2]]
+}
+
+#==== data handling ====
+# phrase statistics with frequency
+statwords1 <- aggregate(freq~phrases,data=form1,FUN=sum)
+statwords1 <- statwords1[order(statwords1$freq, decreasing = TRUE),]
+rownames(statwords1) <- c()
+fwrite(statwords1,file = paste0(keyword,"_statwords1.csv") )
+
+# phrase statistics with weight*frequency
+statwords2 <- aggregate(weight~phrases,data=form1,FUN=sum)
+statwords2 <- statwords2[order(statwords2$weight, decreasing = TRUE),]
+rownames(statwords2) <- c()
+fwrite(statwords2,file = paste0(keyword,"_statwords2.csv") )
+```
+
+# Mapping method
+## Initialize emotion statistic data
+```{r emotionstatwords}
+sadwords <- as.data.frame(fread("sad_statwords2.csv"))
+happywords <- as.data.frame(fread("happy_statwords2.csv"))
+angrywords <- as.data.frame(fread("angry_statwords2.csv"))
+relaxwords <- as.data.frame(fread("relax_statwords2.csv"))
+calmwords <- as.data.frame(fread("calm_statwords2.csv"))
+knitr::kable(
+  happywords[1:5, ], 
+  caption = "Take happy words dataset as an example. It looks like this:"
+)
+```
+
+
+## Get top40-weight value for all emotion types
+1. Get top80-weight tags for each emotion type
+2. Merge them to get unique top-weight tags
+3. Calculate *commonwords* for all emotion types
+4. Keep top30-weight tags for each emotion type, then merge and remove duplicated tags to get *uniquewords*
+5. Remove *commonwords* from *uniquewords*   
+*[**TBD**]*I believe R has package to do this better than me.It's about NLP and Emotion Analysis. I will try later. 
+```{r commonwords}
+top <- 80L
+topsadwords <- head(sadwords,top)
+tophappywords <- head(happywords,top)
+topangrywords <- head(angrywords,top)
+toprelaxwords <- head(relaxwords,top)
+#topcalmwords <- head(calmwords,top)
+  
+#totalwords <- rbind(topsadwords,tophappywords,topangrywords,topcalmwords)
+totalwords <- rbind(topsadwords,tophappywords,topangrywords,toprelaxwords)
+totalwords$freq <- 1L
+
+uniquewords <- aggregate(freq~phrases,data=totalwords,FUN=sum)
+uniquewords <- uniquewords[order(uniquewords$freq, decreasing = TRUE),]
+rownames(uniquewords) <- c()
+
+
+commonwords <- uniquewords[uniquewords$freq==4,]$phrases
+print(commonwords)
+```
+Totally, there are `r length(commonwords)` common words.   
+
+```{r uniquewords }
+top <- 30L
+top30sadwords <- head(sadwords,top)
+top30happywords <- head(happywords,top)
+top30angrywords <- head(angrywords,top)
+top30relaxwords <- head(relaxwords,top)
+top30calmwords <- head(calmwords,top)
+#totaltop30words <- rbind(top30sadwords,top30happywords,top30angrywords,top30calmwords)
+totaltop30words <- rbind(top30sadwords,top30happywords,top30angrywords,top30relaxwords)
+totaltop30words$freq <- 1L
+
+uniquewords <- aggregate(freq~phrases,data=totaltop30words,FUN=sum)
+uniquewords <- uniquewords[order(uniquewords$freq, decreasing = TRUE),]
+rownames(uniquewords) <- c()
+
+uniquewords <- uniquewords[!(uniquewords$phrases %in% commonwords),]$phrases
+print(uniquewords)
+```
+Finally, `r length(uniquewords)` top-weight tags is selected.   
+
+##Calculate emotion-tags matrix
+```{r etmatrix1}
+uniquehappywords <- happywords[happywords$phrases %in% uniquewords,]
+colnames(uniquehappywords) <- c("phrases","happy")
+uniquesadwords <- sadwords[sadwords$phrases %in% uniquewords,]
+colnames(uniquesadwords) <- c("phrases","sad")
+uniqueangrywords <- angrywords[angrywords$phrases %in% uniquewords,]
+colnames(uniqueangrywords) <- c("phrases","angry")
+uniquerelaxwords <- relaxwords[relaxwords$phrases %in% uniquewords,]
+colnames(uniquerelaxwords) <- c("phrases","relax")
+uniquecalmwords <- calmwords[calmwords$phrases %in% uniquewords,]
+colnames(uniquecalmwords) <- c("phrases","calm")
+
+etmatrix <- merge(uniquehappywords,uniquesadwords,by="phrases")
+etmatrix <- merge(etmatrix,uniqueangrywords,by="phrases")
+#etmatrix <- merge(etmatrix,uniquecalmwords,by="phrases")
+etmatrix <- merge(etmatrix,uniquerelaxwords,by="phrases")
+row.names(etmatrix) <- etmatrix$phrases
+
+#==== tags-emotion matrix====
+etmatrix1 <- as.matrix(etmatrix[,2:5])
+knitr::kable(
+  etmatrix1[1:10,],
+  caption = "tags-emotion matrice"
+)
+```
+
+The tags-emotion matrix size is `r nrow(etmatrix1)`*`r ncol(etmatrix1)`   
+
+## Balancing tags data size for each emotion type
+### Prepare songs tag data
+```{r songstag, eval=FALSE}
+#==== build songs set covering 4 emotion types====
+alltags <- fread("./statwords.csv")
+result <- grep(keyword,alltags$tags,ignore.case = TRUE)
+subtags <- alltags[result,]
+fwrite(subtags,paste0("tagswith",keyword,".csv"))
+```
+
+### Balance data
+```{r songstags, include=FALSE}
+happydata <- as.data.frame(fread("tagswithhappy.csv"))
+saddata <- as.data.frame(fread("tagswithsad.csv"))
+angrydata <- as.data.frame(fread("tagswithangry.csv"))
+relaxdata <- as.data.frame(fread("tagswithrelax.csv"))
+calmdata <- as.data.frame(fread("tagswithcalm.csv"))
+
+
+samp <- sample(nrow(happydata), nrow(angrydata)) 
+samp <- sort(samp)
+happydata <- happydata[samp,]
+
+samp <- sample(nrow(saddata), nrow(angrydata))
+samp <- sort(samp)
+saddata <- saddata[samp,]
+
+samp <- sample(nrow(relaxdata), nrow(angrydata))
+samp <- sort(samp)
+relaxdata <- relaxdata[samp,]
+
+samp <- sample(nrow(calmdata), nrow(angrydata))
+samp <- sort(samp)
+calmdata <- calmdata[samp,]
+
+songstags <- rbind(happydata,saddata,angrydata,relaxdata)
+#songstags <- rbind(happydata,saddata,angrydata,calmdata)
+songstags <- unique(songstags$track_id)
+songstags <- alltags[alltags$track_id %in% songstags,]
+```
+Use **angry** data size `r nrow(angrydata)` as the base size, other emotion data is sampled. 
+```{r}
+knitr::kable(
+  head(songstags),
+  caption = "Balanced songs tag dataset"
+)
+```
+
+## Calculate songs-tags matrix
+Here is the function that calculate the weight of topN unique words for each song track
+```{r strtrans()}
+strtrans <- function(x){
+  obsv1 <- strsplit(x,"\\*")
+  obsv2 <- data.frame(matrix(unlist(obsv1),ncol = 2, byrow = TRUE),stringsAsFactors=F)
+  colnames(obsv2) <- c("phrases", "weight")
+  obsv2$weight <- as.numeric(obsv2$weight)
+  
+  
+  obsv3 <- merge(dfuniwords,obsv2, by="phrases",all.x = T)
+  
+  obsv3$weight[is.na(obsv3$weight)] <- 0
+  
+  obsv3$weight
+}
+```
+
+```{r stmatrix}
+dfuniwords <- data.frame(uniquewords,stringsAsFactors=F)
+colnames(dfuniwords) <- c("phrases")
+obsv <- str_to_lower(songstags$tags)
+obsv <- str_split(obsv,pattern = ";")      #list
+
+#tags-songs matrix, value is weight
+obsv8 <- sapply(obsv,strtrans)     
+
+#transpose to songs-tags matrix
+stmatrix <- t(obsv8)             
+dimnames(stmatrix) <- list(songstags$track_id,sort(uniquewords))
+knitr::kable(
+  head(stmatrix),
+  caption = "songs-tags matrice"
+)
+```
+
+The matrix size is `r nrow(stmatrix)`*`r ncol(stmatrix)`   
+
+##Calculate songs-emotion matrix
+```{r sematrix}
+sematrix <- stmatrix %*% etmatrix1  
+knitr::kable(
+  head(sematrix),
+  caption = "songs-emotion matrix"
+)
+```
+
+The matrix size is `r nrow(sematrix)`*`r ncol(sematrix)`   
+
+
+##Optimize sematrix data
+* Fiter songs with tag value being zero    
+ For some songs, the weight of emotion tag is 0. That's why some items in sematrix are 0-0-0-0.Use below method, we will remove these all-0 items. That is, the songs with weight zero are filtered out.
+* Normalize data.  
+ Due to big weight value, it is not good for reading and comparing.
+
+```{r optisematrix}
+sedf <- as.data.frame(sematrix)
+#sedf$valid <- sedf$happy|sedf$sad|sedf$angry|sedf$calm
+sedf$valid <- sedf$happy|sedf$sad|sedf$angry|sedf$relax
+#nrow(sedf[!sedf$invalid,])  
+sedf1 <- sedf[sedf$valid,]
+sedf1$valid <- c()
+sedf1 <- sedf1/100000L
+
+
+sedfmax <- sapply(sedf1,max)
+maxweight <- max(sedfmax)
+sedfnorm <- sedf1/maxweight
+sedfnorm1 <- sedfnorm*100
+knitr::kable(
+  head(sedfnorm1),
+  caption = "Optimized songs-emotion dataset"
+)
+```
+
+Now the total sample size is `r nrow(sedfnorm1)`   
+
+
+```{r dimvalue}
+N <- ncol(sedfnorm1)
+avalue <- apply(sedfnorm1[,c('happy','sad','angry','relax')],1,function(x){(x[1]-x[2]+x[3]-x[4])/N/sqrt(2)})
+vvalue <- apply(sedfnorm1[,c('happy','sad','angry','relax')],1,function(x){(x[1]-x[2]-x[3]+x[4])/N/sqrt(2)})
+#avalue <- apply(sedfnorm1[,c('happy','sad','angry','calm')],1,function(x){(x[1]-x[2]+x[3]-x[4])/N/sqrt(2)})
+#vvalue <- apply(sedfnorm1[,c('happy','sad','angry','calm')],1,function(x){(x[1]-x[2]-x[3]+x[4])/N/sqrt(2)})
+
+adf <- as.data.frame(avalue)
+adf <- cbind(track_id = rownames(adf), adf) 
+rownames(adf) <- c()
+adf$alevel <- ifelse(adf$avalue>=0,1,3)
+vdf <- as.data.frame(vvalue)
+vdf <- cbind(track_id = rownames(vdf), vdf) 
+rownames(vdf) <- c()
+vdf$vlevel <- ifelse(vdf$vvalue>=0,0,1)
+
+dimvalue <- merge(vdf,adf,by='track_id')
+dimvalue$quadrant <- dimvalue$vlevel+dimvalue$alevel
+dimvalue$quadrant <- as.character(dimvalue$quadrant)
+```
+Songs emotion dataset based on 2D valence-arousal sapce  
+```{r}
+knitr::kable(
+  head(dimvalue),
+  caption = "2D songs-emotion dataset"
+)
+```
+
+## Data Visualization
+### macro view
+```{r visualization_macro}
+#the whole view
+dimvalue%>%
+  group_by(quadrant)%>%
+  ggplot(aes(x = vvalue,y= avalue,color=quadrant))+
+  geom_point(alpha=0.2)+
+  scale_color_manual(values= c('orange','red','green','blue'),
+                       name="Emotion Type",
+                      breaks=c('1','2', '3','4'),
+                      #labels=c("Happy", "Angry", "Calm","Sad")
+                      labels=c("Happy", "Angry", "Relaxed","Sad")
+                      )
+```
+
+### micro view
+```{r visualization_micro}
+dimvalue%>%
+  group_by(quadrant)%>%
+  ggplot(aes(x = vvalue,y= avalue,color=quadrant))+
+  geom_point(alpha=0.2)+
+  scale_color_manual(values= c('orange','red','green','blue'),
+                     name="Emotion Type",
+                     breaks=c('1','2', '3','4'),
+                     #labels=c("Happy", "Angry", "Calm","Sad")
+                     labels=c("Happy", "Angry", "Relaxed","Sad")
+  )+
+  coord_cartesian(xlim = c(-0.5,0.5),ylim = c(-0.5, 0.5))
+```
+
+
+## Statistical data overview for each quadrant
+```{r statsummary}
+summary_stats<- dimvalue%>%
+  group_by(quadrant)%>%
+  summarise(size=n())
+
+knitr::kable(
+  summary_stats
+)
+```
+
+Note: 1 for happy, 2 for angry, 4 for sad, 3 for relax  
+
