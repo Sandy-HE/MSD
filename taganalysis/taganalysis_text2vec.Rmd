@@ -1,0 +1,135 @@
+---
+title: "taganalysis_text2vec"
+author: "Sandy HE"
+date: "5 April 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(text2vec)  
+library(data.table) 
+library(stringr)
+```
+
+# Preliminary 
+## Initialization
+* Collect tags data  
+ In the input file, tag info like this: happy\*100;indie rock\*82;rock\*65
+* Set stopwords for removal
+* Divide track id for train and test set
+
+```{r initial, include=FALSE}
+#initial
+alltags <- fread("./statwords.csv")
+#use top40 frequent words calculated in the experiment before
+tematrix <- fread("tagsemomatrix.csv")
+topwords <- tematrix$V1
+
+#divide into train set and test set with the proportion of 4:1
+all_ids <- alltags$track_id 
+train_ids <- sample(all_ids, nrow(alltags)/5*4)
+test_ids <- setdiff(all_ids, train_ids) 
+```
+
+The function of tags transform
+For one song, merge all of tags into one string with the format like this:
+[tag1]\*popularity1 + [tag2]\*popularity2+...+[tagN]\*popularityN
+* Input: tags info of each song
+* Output: merged tags info
+```{r itemsmultitrans}
+itemsMultiTrans <- function(items){
+  itemlist <- tstrsplit(items, "\\*")
+  itemdf <- as.data.frame(itemlist, stringsAsFactors = F,col.names = c("item","popularity"))
+  if(!is.integer(itemdf$popularity)) print(itemdf)
+  itemdf$multiItem <- strrep(paste0(itemdf$item," "),as.integer(itemdf$popularity) )
+  itemdf <- itemdf[itemdf$popularity!=0,]
+  
+  itemsstr<-paste(itemdf$multiItem,collapse =" ")
+  itemsstr
+}
+```
+
+## Process Tags and Merge into String 
+lowercase-> split-> tags multipled with popularity and merge
+```{r alltags, eval = FALSE}
+obsv <- str_to_lower(alltags$tags)
+obsv <- str_split(obsv,pattern = ";")      #list
+obsv1 <- sapply(obsv, itemsMultiTrans)    #char vector
+
+#data backup
+alltags$transtags <- obsv1
+#fwrite(alltags,file = "alltranstags.csv")
+```
+
+```{r alltagstable}
+alltags <- fread("alltranstags.csv")
+knitr::kable(
+  alltags[1:5,c(1,3)],
+  caption = "transformed tags info"
+)
+```
+
+## prepare train set and test set
+```{r dataset}
+train = alltags[alltags$track_id %in% train_ids,]  
+test = alltags[alltags$track_id %in% test_ids,]  
+```
+
+## tags analysis
+* generate token for training dataset
+* create vocabulary with stop words removal
+* remove low-freq and high-freq words in vocabulary
+* generate word vector
+```{r wordvec}
+tok_fun <- word_tokenizer  
+it_train <- itoken(train$transtags,   
+                  #preprocessor = prep_fun,   
+                  tokenizer = tok_fun,   
+                  ids = train$track_id,   
+                  progressbar = F)  
+
+#set stop words and remove them from vocabulary
+stop_words <- c("the","to","of","and","a","in","this","-","for","it","that","on","is")
+system.time(vocab <- create_vocabulary(it_train,stopwords = stop_words))
+
+#remove low-freq and high-freq words
+pruned_vocab = prune_vocabulary(vocab,   
+                                term_count_min = 10,   
+                                doc_proportion_max = 0.5,  
+                                doc_proportion_min = 0.001)  
+
+#set up corpus vector
+vectorizer <- vocab_vectorizer(pruned_vocab)
+```
+
+
+## Generate DTM(doc-term matrix). 
+Here we can understand it as song-term matrix
+```{r DTM, eval=FALSE}
+system.time(dtm_train <- create_dtm(it_train, vectorizer))
+```
+
+## Generate TCM(term-co-occurrence matrix).
+```{r TCM}
+system.time(tcm_train <- create_tcm(it_train, vectorizer, skip_grams_window = 5L,
+           skip_grams_window_context = c("symmetric", "right", "left")))
+```
+
+## Prune Sparse Matrix Containing topN-freq Tags 
+```{r pruned_tcm}
+tcm_sample <- tcm_train[rownames(tcm_train) %in% topwords,colnames(tcm_train) %in% topwords]
+tcm_sample_mat <- as.matrix(tcm_sample)
+
+tcm_sample_diag <- diag(diag(tcm_sample_mat))
+tcm_sample_whole <- tcm_sample_mat + t(tcm_sample_mat) - tcm_sample_diag
+tcm_sample_whole <- round(tcm_sample_whole,2)
+tcm_sample_df <- as.data.frame(tcm_sample_whole)
+
+#tags <- rownames(tcm_sample_df)
+#tcm_sample_df<- cbind(tags,tcm_sample_df)
+#fwrite(tcm_sample_df, file = "tcm_sample_pruned_vocab.csv")
+knitr::kable(
+  tcm_sample_df,
+  caption = "tags co-occurrence matrix"
+)
+```
