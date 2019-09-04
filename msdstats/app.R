@@ -1,7 +1,7 @@
 #
-# This is a Shiny web application which shows statistical result of audio features for types of emotion.
-# The audio features includes tempo and loudness
-# Emotion types includes happy, sad, angry, relax
+# This is a Shiny web application which shows statistical result of audio features for emotion types.
+# These audio features include tempo and loudness
+# Emotion types include happy, sad, angry, relax
 #
 # Author: Sandy HE
 # Date: 22/01/2018
@@ -48,12 +48,12 @@ ui <- fluidPage(
       # two output, one for ggplot2, one for ggvis
       fluidRow(
         column(
-          width = 4,
+          width = 6,
           h4("tempo_mean summary"),
           plotOutput("distPlot1", height = 300)
         ),
         column(
-          width = 4,
+          width = 6,
           h4("loudness_mean summary"),
           plotOutput("distPlot2", height = 300)
         )
@@ -122,6 +122,7 @@ server <- function(input, output) {
     
     #calculate confidence interval for tempo
     tempo_err <- qnorm(1 - (1 - ci) / 2) * d$tempo_sd / sqrt(d$size)
+    #tempo_err <- qt(1 - (1 - ci) / 2,df=d$size-1)*d$tempo_sd/sqrt(d$size)
     d$tempo_cil <- d$tempo_m - tempo_err
     d$tempo_cir <- d$tempo_m + tempo_err
     
@@ -137,27 +138,29 @@ server <- function(input, output) {
   #ggplot for tempo and its mean for each emotion type
   output$distPlot1 <- renderPlot({
     aData() %>%
-      ggplot(aes(x = tag, y = tempo)) +
-      geom_point(aes(color = tag)) +
+      ggplot(aes(x = tag, y = tempo, color=tag)) +
+      geom_jitter(alpha = 0.05) +
       stat_summary(
         fun.y = mean,
         colour = "red",
         geom = "point",
         size = 5
-      )
+      )+
+      guides(colour = guide_legend(override.aes = list(alpha = 1)))
   })
   
   #ggplot for loudness and its mean for each emotion type
   output$distPlot2 <- renderPlot({
     aData() %>%
       ggplot(aes(x = tag, y = loudness)) +
-      geom_point(aes(color = tag)) +
+      geom_jitter(aes(color = tag),alpha = 0.05) +
       stat_summary(
         fun.y = mean,
         colour = "red",
         geom = "point",
         size = 5
-      )
+      )+
+      guides(colour = guide_legend(override.aes = list(alpha = 1)))
   })
   
   #ggplot for loudness-tempo mean and confidence interval for each emotion type
@@ -203,7 +206,8 @@ server <- function(input, output) {
     aData() %>%
       ggplot(aes(x = tempo, y = loudness)) +
       geom_point(aes(color = tag), alpha = 0.1) +
-      facet_grid(. ~ tag)
+      facet_grid(. ~ tag)+
+      guides(colour = guide_legend(override.aes = list(alpha = 1)))
   })
   
   # statistic report form
